@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 - Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div class="nav"><a href="settings.html">设置</a></div>
+  <h1>登录</h1>
+  <p class="text-muted">若服务未开启登录，可先访问书架，部分接口可能无需登录。</p>
+  <form id="form">
+    <label>用户名</label>
+    <input type="text" id="username" required autocomplete="username">
+    <label>密码</label>
+    <input type="password" id="password" required autocomplete="current-password">
+    <button type="submit" class="btn primary">登录</button>
+    <button type="button" class="btn" id="skip">跳过（试访书架）</button>
+  </form>
+  <p id="msg" class="hide"></p>
+  <script src="js/api.js"></script>
+  <script>
+    var form = document.getElementById('form');
+    var msg = document.getElementById('msg');
+
+    if (!ReaderAPI.getApiBase()) {
+      location.href = 'settings.html';
+    }
+
+    form.onsubmit = function (e) {
+      e.preventDefault();
+      var username = document.getElementById('username').value.trim();
+      var password = document.getElementById('password').value;
+      if (!username || !password) { show('请填写用户名和密码', true); return; }
+
+      ReaderAPI.post('/login', {
+        username: username,
+        password: password,
+        isLogin: true
+      }).then(function (res) {
+        if (res && res.isSuccess && res.data && res.data.accessToken) {
+          ReaderAPI.setAccessToken(res.data.accessToken);
+          location.href = 'shelf.html';
+        } else {
+          show(res && res.errorMsg ? res.errorMsg : '登录失败', true);
+        }
+      }).catch(function (err) {
+        show('请求失败：' + (err.message || err), true);
+      });
+    };
+
+    document.getElementById('skip').onclick = function () {
+      location.href = 'shelf.html';
+    };
+
+    function show(text, isErr) {
+      msg.textContent = text;
+      msg.className = isErr ? 'err' : '';
+      msg.classList.remove('hide');
+    }
+  </script>
+</body>
+</html>

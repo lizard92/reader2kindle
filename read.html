@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>阅读 - Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div class="nav">
+    <a href="#" id="toToc">目录</a>
+    <a href="shelf.html">书架</a>
+    <a href="javascript:;" id="fontUp">字体大</a>
+    <a href="javascript:;" id="fontDown">字体小</a>
+    <a href="javascript:;" id="prev">上一章</a>
+    <a href="javascript:;" id="next">下一章</a>
+  </div>
+  <div class="read-page-header">
+    <h2 id="chapterTitle"></h2>
+  </div>
+  <div id="load" class="loading">加载中…</div>
+  <div class="read-area hide" id="readArea">
+    <div class="read-viewport" id="viewport" tabindex="0">
+      <div id="content" class="read-content"></div>
+    </div>
+  </div>
+  <p id="err" class="err hide"></p>
+  <script src="js/api.js"></script>
+  <script>
+    window.onNeedLogin = function () { location.href = 'login.html'; };
+
+    var bookUrl = '';
+    var index = 0;
+    var search = location.search ? location.search.substring(1) : '';
+    var parts = search.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].split('=');
+      if (p[0] === 'url' && p[1]) bookUrl = decodeURIComponent(p[1].replace(/\+/g, ' '));
+      if (p[0] === 'index' && p[1]) index = parseInt(p[1], 10) || 0;
+    }
+
+    if (!bookUrl) {
+      document.getElementById('load').classList.add('hide');
+      document.getElementById('err').textContent = '缺少书籍参数';
+      document.getElementById('err').classList.remove('hide');
+    }
+
+    var tocUrl = 'book.html?url=' + (bookUrl ? encodeURIComponent(bookUrl) : '');
+    document.getElementById('toToc').href = tocUrl;
+
+    var loadEl = document.getElementById('load');
+    var errEl = document.getElementById('err');
+    var readAreaEl = document.getElementById('readArea');
+    var viewportEl = document.getElementById('viewport');
+    var contentEl = document.getElementById('content');
+
+    var totalPages = 0;
+    var currentPage = 1;
+
+    var rootFontSize = 16;
+    try {
+      var docFont = window.getComputedStyle && window.getComputedStyle(document.documentElement).fontSize;
+      if (docFont) rootFontSize = parseFloat(docFont) || 16;
+    } catch (e) {}
+
+    var KINDLE_OASIS2_READING = { pageWidth: 1232, pageHeight: 1140 };
+
+    var charTools = {
+      isEnglishAlphabet: function (ch) {
+        var code = ch.charCodeAt(0);
+        return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+      },
+      isEndChar: (function () {
+        var s = ',.?!;\:\'"}]>)>，。？！；：、】）》';
+        var m = {};
+        for (var i = 0; i < s.length; i++) m[s[i]] = true;
+        return function (ch) { return !!m[ch]; };
+      })(),
+      encodeHTML: function (s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/ /g, '&nbsp;');
+      }
+    };
+
+    var fullWidthRefChar = '\u4E2D';
+    function CharWidth(container, style) {
+      this.charMap = {};
+      this.fullWidth = null;
+      this.span = document.createElement('span');
+      this.span.setAttribute('aria-hidden', 'true');
+      this.span.style.cssText = 'opacity:0;position:absolute;left:-9999px;top:-9999px;pointer-events:none;white-space:nowrap;' +
+        'font-size:' + (style.fontSize || '1.15rem') + ';line-height:' + (style.lineHeight || '1.8') + ';font-family:' + (style.fontFamily || 'inherit');
+      container.appendChild(this.span);
+    }
+    CharWidth.prototype.getFullWidth = function () {
+      if (this.fullWidth != null) return this.fullWidth;
+      this.span.innerHTML = charTools.encodeHTML(fullWidthRefChar);
+      this.fullWidth = this.span.getBoundingClientRect().width;
+      return this.fullWidth;
+    };
+    CharWidth.prototype.get = function (ch) {
+      var key = ch === '\t' ? 9 : ch.charCodeAt(0);
+      if (this.charMap[key] != null) return this.charMap[key];
+      var oneChar = this.getFullWidth();
+      if (ch === ' ' || ch === '\u00A0' || ch === '\t') {
+        this.charMap[key] = oneChar;
+        return oneChar;
+      }
+      if (ch === '，' || ch === '。' || ch === '？' || ch === '！' || ch === '；' || ch === '：' || ch === '、' || ch === '\u201C' || ch === '\u201D' || ch === '\u2018' || ch === '\u2019' || ch === '【' || ch === '】' || ch === '（' || ch === '）' || ch === '《' || ch === '》' || ch === ',' || ch === '.' || ch === '?' || ch === '!' || ch === ';' || ch === ':' || ch === '"' || ch === '\'' || ch === '(' || ch === ')') {
+        this.charMap[key] = oneChar;
+        return oneChar;
+      }
+      var measure = ch;
+      this.span.innerHTML = charTools.encodeHTML(measure);
+      var w = this.span.getBoundingClientRect().width;
+      this.charMap[key] = w;
+      return w;
+    };
+    CharWidth.prototype.remove = function () {
+      if (this.span && this.span.parentNode) this.span.parentNode.removeChild(this.span);
+      this.span = null;
+    };
+
+    var ArticleModel = {
+      splitArticle: function (article) { return (article || '').split('\n'); },
+      getArticleModel: function (style, article, charWidth) {
+        var lines = this.splitArticle(article);
+        var out = [];
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          var arr = [];
+          if (line.length === 0) {
+            out.push([{ character: '\n', width: 0 }]);
+            continue;
+          }
+          var word = '';
+          var wordWidth = 0;
+          for (var j = 0; j < line.length; j++) {
+            var ch = line[j];
+            if (charTools.isEnglishAlphabet(ch)) {
+              word += ch;
+              wordWidth += charWidth.get(ch);
+            } else {
+              if (word.length > 0) {
+                arr.push({ character: word, width: wordWidth });
+                word = '';
+                wordWidth = 0;
+              }
+              arr.push({ character: ch, width: charWidth.get(ch) });
+            }
+          }
+          if (word.length > 0) arr.push({ character: word, width: wordWidth });
+          out.push(arr);
+        }
+        return out;
+      }
+    };
+
+    var renderPage = {
+      pages: 0,
+      wrapChar: function (content, key, width) {
+        var w = (content === '\t' ? 'min-width:' + (width || 16) + 'px;display:inline-block' : '');
+        return '<span data-key="' + key + '"' + (w ? ' style="' + w + '"' : '') + '>' + charTools.encodeHTML(content) + '</span>';
+      },
+      buildParagraphStyle: function (style, lineHeightPx, letterSpacing) {
+        var s = 'font-size:' + style.fontSize + ';line-height:' + lineHeightPx + 'px;padding:0;margin:0';
+        if (letterSpacing != null) s += ';letter-spacing:' + letterSpacing + 'px';
+        return s;
+      },
+      wrapParagraph: function (lineContent, style, lineHeightPx, letterSpacing) {
+        return '<p style="' + this.buildParagraphStyle(style, lineHeightPx, letterSpacing) + '">' + lineContent + '</p>';
+      },
+      finishLine: function (lineBuffer, style, lineHeightPx, baseLetterSpacing, spaceWidth, charCount) {
+        if (lineBuffer.length === 0) return '';
+        var lineContent = lineBuffer.join('');
+        var adj = (spaceWidth != null && Math.abs(spaceWidth) > 1 && charCount > 0) ? baseLetterSpacing + spaceWidth / charCount : baseLetterSpacing;
+        return this.wrapParagraph(lineContent, style, lineHeightPx, adj);
+      },
+      finishPage: function (pageBuffer, pageNum, isFirst, dom) {
+        if (pageBuffer.length === 0) return;
+        var html = '<div class="article-page article-page' + pageNum + '" style="display:' + (isFirst ? 'block' : 'none') + '">' + pageBuffer.join('') + '</div>';
+        dom.insertAdjacentHTML('beforeend', html);
+      },
+      calculatePageDimensions: function (config) {
+        var pageWidth = KINDLE_OASIS2_READING.pageWidth;
+        var pageHeight = KINDLE_OASIS2_READING.pageHeight;
+        var style = config.fontStyleStatus || {};
+        var fontSizeNum = parseFloat(style.fontSize) || 1.15;
+        var lineHeightNum = parseFloat(style.lineHeight) || 1.8;
+        var lineHeightPx = lineHeightNum * rootFontSize * fontSizeNum;
+        var maxLines = Math.floor(pageHeight / lineHeightPx);
+        if (maxLines < 1) maxLines = 1;
+        return { pageWidth: pageWidth, pageHeight: pageHeight, lineHeightPx: lineHeightPx, maxLines: maxLines };
+      },
+      renderPage: function (config, dom) {
+        var dim = this.calculatePageDimensions(config);
+        var pageWidth = dim.pageWidth;
+        var lineHeightPx = dim.lineHeightPx;
+        var maxLines = dim.maxLines;
+        var style = config.fontStyleStatus || { fontSize: '1.15rem', lineHeight: '1.8', letterSpacing: 0 };
+        var baseLetterSpacing = typeof style.letterSpacing === 'string' ? parseFloat(style.letterSpacing.replace(/px$/, '')) || 0 : (style.letterSpacing || 0);
+        var articleModel = config.articleModel;
+        var pageBuffer = [];
+        var lineBuffer = [];
+        var lineWidth = 0;
+        var lineCharCount = 0;
+        var pageLineCount = 0;
+        var wordIndex = 0;
+        var pageCount = 0;
+        var isFirstPage = true;
+        for (var i = 0; i < articleModel.length; i++) {
+          var section = articleModel[i];
+          var j = 0;
+          if (section.length === 1 && section[0].character === '\n') {
+            if (lineBuffer.length > 0) {
+              pageBuffer.push(this.finishLine(lineBuffer, style, lineHeightPx, baseLetterSpacing, null, lineCharCount));
+              pageLineCount++;
+              lineBuffer = [];
+              lineWidth = 0;
+              lineCharCount = 0;
+            }
+            pageBuffer.push(this.wrapParagraph('\u00A0', style, lineHeightPx, null));
+            pageLineCount++;
+            if (pageLineCount >= maxLines) {
+              this.finishPage(pageBuffer, pageCount++, isFirstPage, dom);
+              isFirstPage = false;
+              pageBuffer = [];
+              pageLineCount = 0;
+            }
+            continue;
+          }
+          while (j < section.length) {
+            var wordInfo = section[j];
+            var ch = wordInfo.character;
+            var charWidth = wordInfo.width;
+            if (pageLineCount >= maxLines) {
+              this.finishPage(pageBuffer, pageCount++, isFirstPage, dom);
+              isFirstPage = false;
+              pageBuffer = [];
+              pageLineCount = 0;
+            }
+            var newLineWidth = lineWidth + charWidth + baseLetterSpacing;
+            if (newLineWidth <= pageWidth) {
+              lineBuffer.push(this.wrapChar(ch, wordIndex++, ch === '\t' ? charWidth : null));
+              lineWidth = newLineWidth;
+              lineCharCount += ch.length;
+              j++;
+            } else {
+              var spaceWidth = pageWidth - lineWidth + baseLetterSpacing;
+              if (charTools.isEndChar(ch)) {
+                lineBuffer.push(this.wrapChar(ch, wordIndex++, ch === '\t' ? charWidth : null));
+                spaceWidth -= charWidth;
+                lineCharCount += ch.length;
+                j++;
+              } else if (lineBuffer.length === 0) {
+                lineBuffer.push(this.wrapChar(ch, wordIndex++, ch === '\t' ? charWidth : null));
+                j++;
+              }
+              pageBuffer.push(this.finishLine(lineBuffer, style, lineHeightPx, baseLetterSpacing, spaceWidth, lineCharCount));
+              pageLineCount++;
+              lineBuffer = [];
+              lineWidth = 0;
+              lineCharCount = 0;
+            }
+          }
+        }
+        if (lineBuffer.length > 0) {
+          pageBuffer.push(this.wrapParagraph(lineBuffer.join(''), style, lineHeightPx, null));
+          pageLineCount++;
+        }
+        this.finishPage(pageBuffer, pageCount, isFirstPage, dom);
+        this.pages = pageCount + 1;
+      }
+    };
+
+    function showPage(pageIndex) {
+      if (pageIndex < 1 || pageIndex > totalPages) return;
+      currentPage = pageIndex;
+      var pages = contentEl.querySelectorAll('.article-page');
+      for (var i = 0; i < pages.length; i++) {
+        pages[i].style.display = (i === currentPage - 1) ? 'block' : 'none';
+      }
+    }
+
+    function goPrevPage() {
+      if (currentPage > 1) {
+        showPage(currentPage - 1);
+      } else if (index > 0) {
+        location.href = 'read.html?url=' + encodeURIComponent(bookUrl) + '&index=' + (index - 1);
+      }
+    }
+
+    function goNextPage() {
+      if (currentPage < totalPages) {
+        showPage(currentPage + 1);
+      } else {
+        location.href = 'read.html?url=' + encodeURIComponent(bookUrl) + '&index=' + (index + 1);
+      }
+    }
+
+    function bindTapFlip() {
+      function handleTap(e) {
+        if (e.target !== viewportEl && !viewportEl.contains(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var x = (e.clientX != null ? e.clientX : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0));
+        var w = viewportEl.clientWidth || window.innerWidth;
+        if (x < w * 0.4) goPrevPage();
+        else if (x > w * 0.6) goNextPage();
+      }
+      viewportEl.onclick = handleTap;
+      viewportEl.ontouchend = function (e) {
+        if (e.changedTouches && e.changedTouches.length) handleTap(e);
+      };
+    }
+
+    function contentToPlainText(html) {
+      var s = html || '';
+      s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      s = s.replace(/<br\s*\/?>/gi, '\n');
+      s = s.replace(/<\/p>|<\/div>|<\/h[1-6]>|<\/li>|<\/tr>/gi, '\n');
+      s = s.replace(/<[^>]+>/g, '');
+      s = s.replace(/&nbsp;/g, '\n').replace(/&#10;/g, '\n').replace(/&#13;/g, '\n');
+      s = s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      s = s.replace(/[ \t\u00A0\u3000]+/g, '\n');
+      s = s.replace(/\n{3,}/g, '\n\n');
+      return s.trim();
+    }
+
+    function runIReadRender(plainText) {
+      window.lastPlainText = plainText;
+      if (!plainText) {
+        contentEl.innerHTML = '<p class="article-page article-page0" style="display:block">（本章无内容）</p>';
+        totalPages = 1;
+        currentPage = 1;
+        bindTapFlip();
+        return;
+      }
+      contentEl.innerHTML = '';
+      var fontSizeRem = (ReaderAPI && ReaderAPI.getFontSize) ? ReaderAPI.getFontSize() : 1.15;
+      var style = {
+        fontSize: fontSizeRem + 'rem',
+        lineHeight: '1.8',
+        fontFamily: (window.getComputedStyle && contentEl && window.getComputedStyle(contentEl).fontFamily) || 'serif',
+        letterSpacing: 0
+      };
+      var charWidth = new CharWidth(contentEl, style);
+      var articleModel;
+      try {
+        articleModel = ArticleModel.getArticleModel(style, plainText, charWidth);
+      } catch (e) {
+        charWidth.remove();
+        contentEl.innerHTML = '<p>（分页出错，请刷新）</p>';
+        return;
+      }
+      charWidth.remove();
+      var blank = [28, 16, 28, 16];
+      renderPage.renderPage({
+        articleModel: articleModel,
+        fontStyleStatus: style,
+        blank: blank
+      }, contentEl);
+      totalPages = renderPage.pages;
+      if (totalPages < 1) totalPages = 1;
+      currentPage = 1;
+      showPage(1);
+      bindTapFlip();
+    }
+
+    function showContent(data) {
+      document.body.classList.add('read-page');
+      loadEl.classList.add('hide');
+      errEl.classList.add('hide');
+      var html = typeof data === 'string' ? (data.indexOf('<') >= 0 ? data : data.replace(/\n/g, '<br>')) : String(data);
+      readAreaEl.classList.remove('hide');
+      document.getElementById('chapterTitle').textContent = '第 ' + (index + 1) + ' 章';
+      var plainText = contentToPlainText(html);
+      setTimeout(function () { runIReadRender(plainText); }, 80);
+      ReaderAPI.postWithCallback('/saveBookProgress', { url: bookUrl, index: index }, function () {});
+    }
+
+    window.onFontSizeChange = function () {
+      if (window.lastPlainText) {
+        runIReadRender(window.lastPlainText);
+      }
+    };
+
+    function showErr(msg) {
+      document.body.classList.remove('read-page');
+      loadEl.classList.add('hide');
+      errEl.textContent = msg || '加载失败';
+      errEl.classList.remove('hide');
+    }
+
+    function loadChapter() {
+      if (!bookUrl) return;
+      errEl.classList.add('hide');
+      loadEl.classList.remove('hide');
+      loadEl.textContent = '加载中…';
+      var url = '/getBookContent?url=' + encodeURIComponent(bookUrl) + '&index=' + index;
+      ReaderAPI.getWithCallback(url, function (err, res) {
+        if (err) {
+          showErr(err);
+          return;
+        }
+        if (res && res.isSuccess && res.data != null) {
+          showContent(res.data);
+        } else {
+          showErr((res && res.errorMsg) ? res.errorMsg : '加载失败');
+        }
+      });
+    }
+
+    loadChapter();
+
+    setTimeout(function () {
+      if (!loadEl.classList.contains('hide')) {
+        showErr('加载超时，请点「目录」返回后重试');
+      }
+    }, 30000);
+
+    document.getElementById('toToc').href = tocUrl;
+    document.getElementById('prev').onclick = function () {
+      if (index > 0) location.href = 'read.html?url=' + encodeURIComponent(bookUrl) + '&index=' + (index - 1);
+      return false;
+    };
+    document.getElementById('next').onclick = function () {
+      location.href = 'read.html?url=' + encodeURIComponent(bookUrl) + '&index=' + (index + 1);
+      return false;
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>设置 - Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div class="nav"><a href="index.html">首页</a></div>
+  <h1>设置</h1>
+  <form id="form">
+    <label>服务地址（例如：http://192.168.1.100:8080）</label>
+    <input type="url" id="apiBase" placeholder="http://你的服务器:8080" required>
+    <p class="text-muted">填写 Reader 后端地址，不要加 /reader3</p>
+    <button type="submit" class="btn primary">保存</button>
+  </form>
+  <p style="margin-top:1.5rem;">
+    <button type="button" class="btn" id="logout">退出登录</button>
+  </p>
+  <p id="msg" class="hide"></p>
+  <script src="js/api.js"></script>
+  <script>
+    var apiBase = document.getElementById('apiBase');
+    var form = document.getElementById('form');
+    var msg = document.getElementById('msg');
+    apiBase.value = ReaderAPI.getApiBase();
+
+    form.onsubmit = function (e) {
+      e.preventDefault();
+      var v = (apiBase.value || '').trim().replace(/\/+$/, '');
+      if (!v) { show('请填写服务地址'); return; }
+      ReaderAPI.setApiBase(v);
+      show('已保存', false);
+    };
+
+    document.getElementById('logout').onclick = function () {
+      ReaderAPI.clearAuth();
+      show('已退出登录');
+      setTimeout(function () { location.href = 'index.html'; }, 800);
+    };
+
+    function show(text, isErr) {
+      msg.textContent = text;
+      msg.className = isErr !== false ? 'err' : '';
+      msg.classList.remove('hide');
+    }
+  </script>
+</body>
+</html>

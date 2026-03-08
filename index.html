@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <p class="loading">正在跳转…</p>
+  <script src="js/api.js"></script>
+  <script>
+    var base = ReaderAPI.getApiBase();
+    var token = ReaderAPI.getAccessToken();
+    if (!base) {
+      location.href = 'settings.html';
+    } else if (!token) {
+      location.href = 'login.html';
+    } else {
+      location.href = 'shelf.html';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Reader + Kindle 前端 一键部署（飞牛/群晖通用）
+# 使用：把整个 kindle-web 文件夹拷到 NAS，在该目录执行 docker-compose up -d
+version: '3'
+services:
+  reader:
+    image: hectorqin/reader
+    container_name: reader
+    restart: always
+    volumes:
+      - ./storage:/storage
+      - ./log:/log
+    environment:
+      - TZ=Asia/Shanghai
+      - SPRING_PROFILES_ACTIVE=prod
+    expose:
+      - "8080"
+
+  nginx:
+    image: nginx:alpine
+    container_name: reader-nginx
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - .:/usr/share/nginx/kindle:ro
+    depends_on:
+      - reader

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>搜索 - Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div class="nav">
+    <a href="shelf.html">目录</a>
+    <a href="shelf.html">书架</a>
+    <a href="javascript:;" id="fontUp">字体大</a>
+    <a href="javascript:;" id="fontDown">字体小</a>
+  </div>
+  <h1>搜索</h1>
+  <form id="form">
+    <input type="text" id="keyword" placeholder="书名或作者" required>
+    <button type="submit" class="btn primary">搜索</button>
+  </form>
+  <p id="load" class="loading hide">搜索中…</p>
+  <ul id="list" class="list"></ul>
+  <p id="err" class="err hide"></p>
+  <p id="hint" class="text-muted">输入书名或作者后点击搜索，结果中可加入书架。</p>
+  <script src="js/api.js"></script>
+  <script>
+    window.onNeedLogin = function () { location.href = 'login.html'; };
+
+    var listEl = document.getElementById('list');
+    var loadEl = document.getElementById('load');
+    var errEl = document.getElementById('err');
+    var hintEl = document.getElementById('hint');
+
+    document.getElementById('form').onsubmit = function (e) {
+      e.preventDefault();
+      var key = document.getElementById('keyword').value.trim();
+      if (!key) return;
+      listEl.innerHTML = '';
+      errEl.classList.add('hide');
+      hintEl.classList.add('hide');
+      loadEl.classList.remove('hide');
+
+      ReaderAPI.get('/searchBook?key=' + encodeURIComponent(key))
+        .then(function (res) {
+          loadEl.classList.add('hide');
+          if (res && res.isSuccess && Array.isArray(res.data) && res.data.length > 0) {
+            res.data.forEach(function (item) {
+              var li = document.createElement('li');
+              var bookUrl = item.bookUrl || item.url;
+              var name = item.name || '无标题';
+              var author = item.author || '';
+              var origin = item.originName || item.origin || '';
+              li.innerHTML =
+                '<strong>' + name + '</strong>' +
+                '<div class="meta">' + author + ' · ' + origin + '</div>' +
+                '<button class="btn primary add-btn" data-url="' + encodeURIComponent(bookUrl || '') + '" data-name="' + encodeURIComponent(name) + '" data-author="' + encodeURIComponent(author) + '" data-origin="' + encodeURIComponent(item.origin || '') + '" data-originname="' + encodeURIComponent(origin) + '">加入书架</button>';
+              listEl.appendChild(li);
+            });
+            listEl.querySelectorAll('.add-btn').forEach(function (btn) {
+              btn.onclick = function () {
+                var url = decodeURIComponent(btn.getAttribute('data-url'));
+                var name = decodeURIComponent(btn.getAttribute('data-name'));
+                var author = decodeURIComponent(btn.getAttribute('data-author'));
+                var origin = decodeURIComponent(btn.getAttribute('data-origin'));
+                var originName = decodeURIComponent(btn.getAttribute('data-originname'));
+                if (!url || !origin) { errEl.textContent = '该书源信息不完整'; errEl.classList.remove('hide'); return; }
+                addToShelf({ bookUrl: url, name: name, author: author, origin: origin, originName: originName, type: 0 });
+              };
+            });
+          } else {
+            errEl.textContent = (res && res.errorMsg) ? res.errorMsg : '无结果';
+            errEl.classList.remove('hide');
+          }
+        })
+        .catch(function (err) {
+          loadEl.classList.add('hide');
+          errEl.textContent = '请求失败：' + (err.message || err);
+          errEl.classList.remove('hide');
+        });
+    };
+
+    function addToShelf(book) {
+      var body = {
+        bookUrl: book.bookUrl,
+        name: book.name,
+        author: book.author,
+        origin: book.origin,
+        originName: book.originName || book.origin,
+        type: book.type || 0,
+        kind: book.kind || '',
+        intro: book.intro || '',
+        wordCount: book.wordCount || '',
+        latestChapterTitle: book.latestChapterTitle || '',
+        tocUrl: book.tocUrl || '',
+        time: Date.now(),
+        originOrder: book.originOrder || 0
+      };
+      ReaderAPI.post('/saveBook', body).then(function (res) {
+        if (res && res.isSuccess) {
+          errEl.textContent = '已加入书架';
+          errEl.className = '';
+          errEl.classList.remove('hide');
+        } else {
+          errEl.textContent = (res && res.errorMsg) ? res.errorMsg : '加入失败';
+          errEl.className = 'err';
+          errEl.classList.remove('hide');
+        }
+      }).catch(function (err) {
+        errEl.textContent = '请求失败：' + (err.message || err);
+        errEl.className = 'err';
+        errEl.classList.remove('hide');
+      });
+    }
+  </script>
+</body>
+</html>

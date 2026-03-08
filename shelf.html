@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>书架 - Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div class="nav">
+    <a href="shelf.html">目录</a>
+    <a href="shelf.html">书架</a>
+    <a href="javascript:;" id="fontUp">字体大</a>
+    <a href="javascript:;" id="fontDown">字体小</a>
+  </div>
+  <h1>书架</h1>
+  <p><button type="button" class="btn" id="btnRefresh">刷新</button></p>
+  <p id="load" class="loading">加载中…</p>
+  <ul id="list" class="list hide"></ul>
+  <p id="err" class="err hide"></p>
+  <p id="empty" class="hide text-muted">书架为空，可到「搜索」添加书籍。</p>
+  <script src="js/api.js"></script>
+  <script>
+    window.onNeedLogin = function () { location.href = 'login.html'; };
+
+    if (!ReaderAPI.getApiBase()) { location.href = 'settings.html'; }
+
+    var loadEl = document.getElementById('load');
+    var errEl = document.getElementById('err');
+    var listEl = document.getElementById('list');
+    var emptyEl = document.getElementById('empty');
+
+    function hideLoadShowErr(msg) {
+      loadEl.classList.add('hide');
+      errEl.textContent = msg || '加载失败';
+      errEl.classList.remove('hide');
+    }
+
+    function render(books) {
+      listEl.innerHTML = '';
+      if (!books || books.length === 0) {
+        emptyEl.classList.remove('hide');
+        return;
+      }
+      emptyEl.classList.add('hide');
+      for (var i = 0; i < books.length; i++) {
+        var b = books[i];
+        var li = document.createElement('li');
+        var url = encodeURIComponent(b.bookUrl || '');
+        var index = (b.durChapterIndex != null && b.durChapterIndex >= 0) ? b.durChapterIndex : 0;
+        var readUrl = 'read.html?url=' + url + '&index=' + index;
+        var tocUrl = 'book.html?url=' + url;
+        li.innerHTML =
+          '<a href="' + readUrl + '">' + (b.name || '无标题') + '</a>' +
+          '<div class="meta">' + (b.author || '') + (b.durChapterTitle ? ' · ' + b.durChapterTitle : '') + '</div>' +
+          '<div class="meta"><a href="' + tocUrl + '">目录</a></div>';
+        listEl.appendChild(li);
+      }
+      listEl.classList.remove('hide');
+    }
+
+    function loadShelf() {
+      errEl.classList.add('hide');
+      loadEl.classList.remove('hide');
+      loadEl.textContent = '加载中…';
+      ReaderAPI.getWithCallback('/getBookshelf', function (err, res) {
+        loadEl.classList.add('hide');
+        if (err) {
+          errEl.textContent = err;
+          errEl.classList.remove('hide');
+          return;
+        }
+        if (res && res.isSuccess && Array.isArray(res.data)) {
+          render(res.data);
+        } else if (res && res.data === 'NEED_LOGIN') {
+          errEl.textContent = '请先登录';
+          errEl.classList.remove('hide');
+        } else {
+          errEl.textContent = (res && res.errorMsg) ? res.errorMsg : '加载失败';
+          errEl.classList.remove('hide');
+        }
+      });
+    }
+
+    document.getElementById('btnRefresh').onclick = function () { loadShelf(); };
+    loadShelf();
+
+    setTimeout(function () {
+      if (!loadEl.classList.contains('hide')) {
+        loadEl.classList.add('hide');
+        errEl.textContent = '加载超时，请点「刷新」重试';
+        errEl.classList.remove('hide');
+      }
+    }, 30000);
+  </script>
+</body>
+</html>

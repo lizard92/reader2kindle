@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>目录 - Kindle 阅读</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div class="nav">
+    <a href="shelf.html">目录</a>
+    <a href="shelf.html">书架</a>
+    <a href="javascript:;" id="fontUp">字体大</a>
+    <a href="javascript:;" id="fontDown">字体小</a>
+  </div>
+  <h1 id="title">目录</h1>
+  <p id="load" class="loading">加载中…</p>
+  <ul id="list" class="list hide"></ul>
+  <p id="err" class="err hide"></p>
+  <script src="js/api.js"></script>
+  <script>
+    window.onNeedLogin = function () { location.href = 'login.html'; };
+
+    if (!ReaderAPI.getApiBase()) { location.href = 'settings.html'; }
+
+    var search = location.search ? location.search.substring(1) : '';
+    var bookUrl = '';
+    var parts = search.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].split('=');
+      if (p[0] === 'url' && p[1]) {
+        bookUrl = decodeURIComponent(p[1].replace(/\+/g, ' '));
+        break;
+      }
+    }
+
+    var loadEl = document.getElementById('load');
+    var errEl = document.getElementById('err');
+    var listEl = document.getElementById('list');
+    var titleEl = document.getElementById('title');
+
+    function hideLoadShowErr(msg) {
+      loadEl.classList.add('hide');
+      errEl.textContent = msg || '加载失败';
+      errEl.classList.remove('hide');
+    }
+
+    function loadToc() {
+      if (!bookUrl) {
+        hideLoadShowErr('缺少书籍参数');
+        return;
+      }
+      errEl.classList.add('hide');
+      loadEl.classList.remove('hide');
+      loadEl.textContent = '加载中…';
+      ReaderAPI.getWithCallback('/getChapterList?url=' + encodeURIComponent(bookUrl), function (err, res) {
+        loadEl.classList.add('hide');
+        if (err) {
+          errEl.textContent = err;
+          errEl.classList.remove('hide');
+          return;
+        }
+        if (res && res.isSuccess && Array.isArray(res.data)) {
+          titleEl.textContent = '目录（共 ' + res.data.length + ' 章）';
+          listEl.innerHTML = '';
+          for (var i = 0; i < res.data.length; i++) {
+            var ch = res.data[i];
+            var li = document.createElement('li');
+            var readUrl = 'read.html?url=' + encodeURIComponent(bookUrl) + '&index=' + i;
+            li.innerHTML = '<a href="' + readUrl + '">' + (ch.title || '第' + (i + 1) + '章') + '</a>';
+            listEl.appendChild(li);
+          }
+          listEl.classList.remove('hide');
+        } else if (res && res.data === 'NEED_LOGIN') {
+          errEl.textContent = '请先登录';
+          errEl.classList.remove('hide');
+        } else {
+          errEl.textContent = (res && res.errorMsg) ? res.errorMsg : '加载目录失败';
+          errEl.classList.remove('hide');
+        }
+      });
+    }
+
+    loadToc();
+
+    setTimeout(function () {
+      if (!loadEl.classList.contains('hide')) {
+        hideLoadShowErr('加载超时，请返回书架后重试');
+      }
+    }, 30000);
+  </script>
+</body>
+</html>

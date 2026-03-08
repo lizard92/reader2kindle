@@ -9,11 +9,11 @@
 - **书架**：展示已加入的书籍，进入目录
 - **目录**：某本书的章节列表，点击进入阅读
 - **阅读**：正文、上一章/下一章、自动保存进度
-- **搜索**：按书名或作者搜索，支持加入书架
+
 
 ## 使用步骤
 
-### 1. 不需要下载 GitHub 上的 Reader 项目
+### 1. 先搭建 Reader 后端
 
 本前端是**独立静态文件**，只通过 HTTP 调用你已有的 Reader 后端。  
 若你还没有后端：
@@ -21,9 +21,9 @@
 - 用 Docker：`docker run -d -p 8080:8080 hectorqin/reader`
 - 或从 [hectorqin/reader](https://github.com/hectorqin/reader) 克隆并打包运行后端，前端仍可放在任意目录或任意服务器
 
-### 2. 打开前端
+### 2. 搭建前端
 
-**方式 A：本地直接打开（仅适合先在自己电脑上试）**
+**先测试：本地直接打开（仅适合先在自己电脑上试）没问题后搭建**
 
 - 用浏览器打开 `index.html`（file:// 协议）
 - 在「设置」里填：`http://你的Reader地址:8080`（例如本机：`http://127.0.0.1:8080`）
@@ -31,40 +31,6 @@
 
 注意：用 file:// 打开时，部分浏览器会因 CORS 限制无法请求其他地址。若遇请求失败，请用下面的方式 B 或 C。
 
-**方式 B：和 Reader 同机用静态服务器（推荐开发/自用）**
-
-在同一台已运行 Reader 的机器上，用任意静态服务器提供本目录，例如：
-
-```bash
-cd kindle-web
-# Python 3
-python -m http.server 3000
-# 或 npx
-npx serve -l 3000
-```
-
-浏览器访问：`http://本机IP:3000`，设置里填 `http://本机IP:8080`（Reader 端口）。
-
-**方式 C：和 Reader 同域部署（推荐 Kindle 实际使用）**
-
-把 `kindle-web` 目录里的**全部文件**放到与 Reader 同一域名下，例如：
-
-- Reader：`http://你的域名:8080` 或 `http://你的域名/`
-- Kindle 前端：`http://你的域名/kindle/` 或 `http://你的域名/simple-web/`
-
-这样 Kindle 浏览器访问 `http://你的域名/kindle/` 即可，且无跨域问题。
-
-Nginx 示例（Reader 在 8080，Kindle 前端在 `/kindle/`）：
-
-```nginx
-location /kindle/ {
-    alias /path/to/kindle-web/;
-}
-location /reader3/ {
-    proxy_pass http://127.0.0.1:8080;
-    # ... 其他 proxy 配置
-}
-```
 
 ### 3. Kindle 上使用
 
@@ -117,3 +83,4 @@ kindle-web/
 ## 许可
 
 与 Reader 项目一致，可视为配套前端使用；修改与再分发请遵守 Reader 的 GPL-3.0 许可。
+
